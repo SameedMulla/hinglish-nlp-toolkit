@@ -1,151 +1,75 @@
-# Code-Mixed Language Understanding (Hindi-English NLP Multitask Toolkit)
+# Code-Mixed Language Understanding (Hinglish NLP Toolkit)
 
-A comprehensive, modular NLP toolkit for **Hindi-English (Hinglish) code-mixed text**, designed for research and deployment across **5 core tasks**:
+A unified multitask NLP framework designed for **Code-Mixed Hindi-English (Hinglish)** text. 
+This project provides a single, unified prediction interface (`UnifiedPredictor`) and an interactive **Streamlit** web application to test inference across 5 distinct NLP tasks.
 
-1. **Translation**: Code-mixed Hindi-English → Hindi translation (`mT5`, `IndicTrans2`)
-2. **Sentiment Analysis**: Multi-class sentiment classification (`mBERT`, `XLM-R`, `MuRIL`)
-3. **Named Entity Recognition (NER)**: BIO token-level classification (`mBERT`, `XLM-R`, `MuRIL`)
-4. **Question Answering (QA)**: Extractive reading comprehension (`MuRIL`)
-5. **Intent Detection**: Multi-class intent classification (`MuRIL`, synthetic code-mixing)
-
-Designed from the ground up for **future language pair extensibility** (e.g. Tamil-English, Bengali-English) via YAML configs and parameterised preprocessing.
-
----
-
-## 📁 Repository Structure
-
-```
-c:\Projects\NLP\
-├── README.md                          # Main project documentation
-├── requirements.txt                   # Dependency manifest
-├── config/                            # Modular YAML configurations
-│   ├── base.yaml                      # Global hyperparameters & paths
-│   ├── translation.yaml               # Task override for translation
-│   ├── sentiment.yaml                 # Task override for sentiment
-│   ├── ner.yaml                       # Task override for NER
-│   ├── qa.yaml                        # Task override for QA
-│   └── intent.yaml                    # Task override for intent
-├── data/
-│   ├── raw/                           # Raw downloaded datasets
-│   ├── processed/                     # Cleaned, split JSONL datasets
-│   └── scripts/
-│       ├── download_datasets.py       # Auto-downloader for HF & fallbacks
-│       └── preprocess.py              # Unified pipeline (normalization & deduplication)
-├── src/                               # Core Python package
-│   ├── preprocessing/
-│   │   ├── normalizer.py              # CodeMixedNormalizer (NFC, Romanized map, noise removal)
-│   │   ├── tokenizer_utils.py         # Sub-word alignment for NER & sliding-window for QA
-│   │   └── augmentation.py            # Back-translation & synthetic code-mixer
-│   ├── models/
-│   │   ├── baselines.py               # TF-IDF + Logistic Regression/SVM & CRF for NER
-│   │   ├── translation_model.py       # Seq2Seq fine-tuning (mT5)
-│   │   ├── sentiment_model.py         # Classification (mBERT/XLM-R/MuRIL)
-│   │   ├── ner_model.py               # BIO token classification
-│   │   ├── qa_model.py                # Extractive QA model
-│   │   └── intent_model.py            # Multi-class intent model
-│   ├── training/
-│   │   └── trainer.py                 # Unified training orchestrator
-│   ├── evaluation/
-│   │   ├── metrics.py                 # BLEU, ROUGE, Macro-F1, EM, seqeval
-│   │   └── error_analysis.py          # Code-mixed qualitative error categorisation
-│   ├── inference/
-│   │   └── predictor.py               # UnifiedPredictor across all 5 tasks
-│   └── utils/
-│       ├── config.py                  # Hierarchical YAML loader
-│       └── lang_utils.py              # Script detection (Devanagari/Latin/Mixed)
-├── app/
-│   └── streamlit_app.py               # Interactive web app
-├── notebooks/                         # Experimental & demonstration notebooks
-│   ├── 01_data_exploration.ipynb
-│   ├── 02_preprocessing_demo.ipynb
-│   ├── 03_baseline_experiments.ipynb
-│   ├── 04_transformer_experiments.ipynb
-│   └── 05_evaluation_analysis.ipynb
-├── scripts/                           # CLI entry points
-│   ├── train.py                       # Training runner
-│   ├── evaluate.py                    # Evaluation & error reporting runner
-│   └── predict.py                     # Single-shot inference runner
-└── tests/                             # Unit tests
-    ├── test_preprocessing.py
-    ├── test_models.py
-    └── test_evaluation.py
-```
+## Supported Tasks
+1. **Bidirectional Translation**: Code-Mixed ↔ English (Powered by HuggingFace `Helsinki-NLP/opus-mt-hi-en` and `opus-mt-en-hi`)
+2. **Sentiment Analysis**: Multi-class classification (Positive, Negative, Neutral)
+3. **Named Entity Recognition (NER)**: BIO token classification for PER, LOC, ORG, MISC.
+4. **Question Answering (QA)**: Extractive reading comprehension.
+5. **Intent Detection**: Multi-class conversational intent classification.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### 1. Installation
+### 1. Clone & Install Dependencies
+Ensure you have Python 3.8+ installed.
+
 ```bash
+git clone https://github.com/SameedMulla/hinglish-nlp-toolkit.git
+cd hinglish-nlp-toolkit
+
+# Optional: Create a virtual environment
+python -m venv venv
+# Windows: venv\Scripts\activate
+# Linux/Mac: source venv/bin/activate
+
+# Install required packages
 pip install -r requirements.txt
 ```
 
-### 2. Download Datasets
-Download **COMI-LINGUA** and task-specific datasets from Hugging Face:
+### 2. Setup Datasets (COMI-LINGUA)
+This toolkit utilizes the **COMI-LINGUA** datasets for training the baselines.
+1. Place the COMI-LINGUA dataset CSV files (`MT_train.csv`, `NER_train.csv`, etc.) into the `data/COMI-LINGUA/` directory.
+2. Run the preprocessing script to clean and normalize the data into JSON-lines format:
 ```bash
-python data/scripts/download_datasets.py --tasks all
+python data/scripts/preprocess.py --tasks all
 ```
+*(This will generate task-ready files inside `data/processed/`)*
 
-### 3. Preprocess Data
-Run NFC normalization, Romanized Hindi spelling canonicalization, URL/noise stripping, and synthetic code-mixing:
+### 3. Train Baseline Models
+The project relies on classical machine learning baselines (TF-IDF + SVM, and CRF Sequence Taggers) as fast, lower-bound models for classification and NER tasks.
+Run the training script to generate the model weights:
 ```bash
-python data/scripts/preprocess.py --tasks all --lang-pair hi-en
+python scripts/train_baselines.py
 ```
+*(Models will be saved in the `models/` directory)*
 
----
+### 4. Run the Web Application
+Test all the models interactively through the built-in Streamlit interface. The app handles script detection, dynamic model loading, and bidirectional translation.
 
-## ⚡ CLI Usage
-
-### Train a Model
-```bash
-# Train Sentiment Analysis with MuRIL
-python scripts/train.py --task sentiment --backbone google/muril-base-cased --epochs 10 --batch-size 32
-
-# Train Translation with mT5
-python scripts/train.py --task translation --backbone google/mt5-small --epochs 15
-```
-
-### Evaluate Model
-```bash
-python scripts/evaluate.py --task sentiment --save-report
-```
-
-### Run Inference
-```bash
-python scripts/predict.py --task sentiment --text "Yeh movie bohot achhi thi, direction mind blowing!"
-python scripts/predict.py --task translation --text "Is problem ka solution fast nikalna padega"
-python scripts/predict.py --task qa --text "Shah Rukh Khan kahan rehte hain?" --context "Shah Rukh Khan Mumbai me Mannat me rehte hain."
-```
-
----
-
-## 💻 Interactive Streamlit Demo Web App
-
-Launch the interactive web application to test all 5 tasks visually:
 ```bash
 streamlit run app/streamlit_app.py
 ```
 
-Features:
-- Real-time script & mix ratio inspection
-- Visual entity highlights for NER
-- Top-k candidate predictions for Intent Detection
-- Language pair selector (`hi-en` Hindi-English + extensible `ta-en` Tamil-English template)
-
 ---
 
-## 🧪 Unit Testing
+## 🧠 Project Architecture
 
-Run the test suite:
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
+* `app/`: Streamlit web interface (`streamlit_app.py`).
+* `config/`: YAML files for global hyperparameters and task-specific configurations.
+* `data/`: Dataset storage (`raw/`, `processed/`, `COMI-LINGUA/`).
+* `models/`: Checkpoints and serialized `.joblib` / `.model` files.
+* `src/`: 
+  * `inference/predictor.py`: The `UnifiedPredictor` API handling dynamic model loading and fallback heuristics.
+  * `preprocessing/`: Normalization and data cleaning routines.
+  * `models/`: Baseline model architectures (`baselines.py`).
+* `scripts/`: CLI tools for training, evaluating, and testing.
 
----
-
-## 🌐 Extending to Future Languages
-
-To add a new language pair (e.g. Tamil-English `ta-en`):
-1. Add language specific romanization dictionary to `src/preprocessing/normalizer.py`.
-2. Add new Unicode block ranges in `src/utils/lang_utils.py`.
-3. Pass `--lang-pair ta-en` to preprocessing scripts. No model architecture or code changes required!
+## Model Fallback Strategy
+To ensure maximum stability in production or demos, the `UnifiedPredictor` uses a graceful fallback strategy:
+1. **Transformer Checkpoint**: Attempts to load fine-tuned transformer weights from `models/{task}/`.
+2. **Baseline ML Model**: Falls back to the serialized TF-IDF/CRF models trained via `train_baselines.py`.
+3. **Rule-Based Heuristic**: If no models are available, utilizes safe, hard-coded keyword heuristic logic to provide an answer.
