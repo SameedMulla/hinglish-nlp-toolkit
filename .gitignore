@@ -5,7 +5,7 @@ __pycache__/
 
 # Data & Models (Do not upload large data files and model checkpoints)
 data/processed/
-models/
+/models/
 outputs/
 data/raw/
 data/COMI-LINGUA/*.csv

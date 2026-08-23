@@ -13,7 +13,7 @@ dataset:
   name: "hinglish_intent"
   text_column: "text"
   label_column: "intent"
-  num_labels: null               # Determined at runtime from dataset
+  num_labels: 26               # Determined at runtime from dataset
   synthetic: true                # Created via back-translation from ATIS
 
 # --- Model ---
