@@ -65,6 +65,12 @@ def main() -> None:
         default=None,
         help="Learning rate",
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Max training steps",
+    )
 
     args = parser.parse_args()
 
@@ -75,6 +81,8 @@ def main() -> None:
         overrides.setdefault("training", {})["batch_size"] = args.batch_size
     if args.learning_rate is not None:
         overrides.setdefault("training", {})["learning_rate"] = args.learning_rate
+    if args.max_steps is not None:
+        overrides.setdefault("training", {})["max_steps"] = args.max_steps
 
     logger.info(f"Starting training run for task: {args.task}")
     run_training(

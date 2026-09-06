@@ -407,17 +407,39 @@ def preprocess_intent(
 
     mixer = SyntheticCodeMixer(replacement_prob=0.35, seed=42)
 
-    base_intents = [
-        ("I want to book a flight ticket from Delhi to Mumbai tomorrow.", "book_flight"),
-        ("What is the weather forecast for Bangalore today?", "get_weather"),
-        ("Show me my current account balance.", "check_balance"),
-        ("Can you order food from the nearest restaurant?", "order_food"),
-        ("Please cancel my train booking right now.", "cancel_booking"),
-    ] * 60
+    atis_path = data_dir / "raw" / "intent" / "atis"
+    texts = []
+    labels = []
+    
+    if atis_path.exists():
+        from datasets import load_from_disk
+        try:
+            ds = load_from_disk(str(atis_path))
+            for split in ds:
+                # To prevent excessive processing time in the demo, limit to 2000 per split
+                # But ATIS train is ~4000 examples, so just use it all if possible
+                for example in ds[split]:
+                    text = example.get('text', '')
+                    intent = example.get('intent', '')
+                    if text and intent is not None:
+                        texts.append(text)
+                        labels.append(intent)
+        except Exception as e:
+            logger.warning(f"Could not load ATIS from disk: {e}")
 
-    texts = [t for t, l in base_intents]
-    labels = [l for t, l in base_intents]
+    if not texts:
+        logger.warning("Falling back to small synthetic dummy intents")
+        base_intents = [
+            ("I want to book a flight ticket from Delhi to Mumbai tomorrow.", "book_flight"),
+            ("What is the weather forecast for Bangalore today?", "get_weather"),
+            ("Show me my current account balance.", "check_balance"),
+            ("Can you order food from the nearest restaurant?", "order_food"),
+            ("Please cancel my train booking right now.", "cancel_booking"),
+        ] * 60
+        texts = [t for t, l in base_intents]
+        labels = [l for t, l in base_intents]
 
+    logger.info(f"Applying synthetic code-mixing to {len(texts)} queries...")
     mixed_texts, mixed_labels = mixer.code_mix_batch(texts, labels, num_variants=2)
     all_data = [
         {"text": normalizer.normalize(t), "intent": l}

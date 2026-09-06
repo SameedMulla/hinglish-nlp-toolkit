@@ -63,7 +63,7 @@ def download_sentiment_data(raw_dir: Path, cfg: dict) -> None:
     save_path = raw_dir / "sentiment"
     save_path.mkdir(parents=True, exist_ok=True)
 
-    repos = [cfg["datasets"]["sentiment"]["hf_repo"]]
+    repos = ["airzipm/sentiment-dataset-en-hi-hinglish-v2"]
     repos.extend(cfg["datasets"]["sentiment"].get("fallback_repos", []))
 
     for repo in repos:

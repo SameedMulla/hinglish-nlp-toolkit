@@ -129,6 +129,7 @@ def run_training(
             num_epochs=training_cfg.get("num_epochs", 10),
             batch_size=training_cfg.get("batch_size", 32),
             learning_rate=training_cfg.get("learning_rate", 2e-5),
+            max_steps=training_cfg.get("max_steps", -1),
         )
 
     elif task == "ner":
@@ -179,6 +180,7 @@ def run_training(
             num_epochs=training_cfg.get("num_epochs", 15),
             batch_size=training_cfg.get("batch_size", 32),
             learning_rate=training_cfg.get("learning_rate", 2e-5),
+            max_steps=training_cfg.get("max_steps", -1),
         )
 
     else:
