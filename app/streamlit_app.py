@@ -1,5 +1,6 @@
 """
 Streamlit Web Application — Unified Code-Mixed NLP Demonstration Interface.
+Clean, white, professional research-grade UI for Hinglish Language Understanding.
 
 Run with:
     streamlit run app/streamlit_app.py
@@ -20,47 +21,202 @@ from src.preprocessing.normalizer import CodeMixedNormalizer
 from src.utils.lang_utils import detect_script
 
 # ---------------------------------------------------------------------------
-# Page Config & CSS
+# Page Configuration & Clean White Styling
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Code-Mixed NLP Toolkit (Hinglish)",
-    page_icon="🔠",
+    page_title="Hinglish NLP Toolkit",
+    page_icon="H",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 st.markdown("""
 <style>
+/* Base Theme: Clean White, Neutral Slate Typography */
+:root {
+    --bg-page: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
+    --card-bg: #ffffff;
+}
+
+body, .stApp {
+    background-color: #ffffff;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background-color: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+}
+
+/* Typography */
+.header-container {
+    padding-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
 .main-title {
-    font-size: 2.3rem; font-weight: 700;
-    background: linear-gradient(90deg, #3B82F6, #8B5CF6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin-bottom: 0.2rem;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.025em;
+    margin-bottom: 0.25rem;
 }
-.sub-title { font-size: 1.05rem; color: #6B7280; margin-bottom: 1.5rem; }
-.metric-card {
-    background: #F3F4F6; border-radius: 10px; padding: 15px;
-    border-left: 5px solid #3B82F6; margin-bottom: 10px;
+
+.sub-title {
+    font-size: 0.95rem;
+    color: #64748b;
+    font-weight: 400;
 }
-.entity-tag {
-    display: inline-block; padding: 2px 8px; border-radius: 5px;
-    font-weight: 600; font-size: 0.85rem; margin: 2px;
+
+/* Clean Cards */
+.result-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
 }
-.tag-per { background: #FDE68A; color: #92400E; }
-.tag-loc { background: #BFDBFE; color: #1E40AF; }
-.tag-org { background: #BBF7D0; color: #166534; }
-.tag-misc { background: #E9D5FF; color: #6B21A8; }
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.result-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.metric-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.metric-value {
+    font-size: 1.15rem;
+    color: #0f172a;
+    font-weight: 600;
+}
+
+/* Status Chips / Badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-size: 0.825rem;
+    font-weight: 600;
+}
+
+.badge-positive {
+    background-color: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.badge-negative {
+    background-color: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
+.badge-neutral {
+    background-color: #f8fafc;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+.badge-intent {
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.entity-chip {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin: 0.15rem;
+}
+
+.entity-per { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.entity-loc { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.entity-org { background: #faf5ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+.entity-misc { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+
+/* Buttons & Inputs */
+.stButton > button {
+    background-color: #0f172a;
+    color: #ffffff;
+    border-radius: 6px;
+    border: 1px solid #0f172a;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 0.55rem 1.25rem;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.stButton > button:hover {
+    background-color: #1e293b;
+    border-color: #1e293b;
+    color: #ffffff;
+}
+
+.stTextArea textarea {
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.925rem;
+    color: #0f172a;
+}
+
+.stTextArea textarea:focus {
+    border-color: #0f172a;
+    box-shadow: 0 0 0 1px #0f172a;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar Configuration
 # ---------------------------------------------------------------------------
-st.sidebar.title("⚙️ Configuration")
+st.sidebar.markdown("### Settings")
 
 lang_pair = st.sidebar.selectbox(
     "Language Pair",
-    ["hi-en (Hindi-English)", "ta-en (Tamil-English) [Future]"],
+    ["hi-en (Hindi-English)", "ta-en (Tamil-English) [Roadmap]"],
     index=0,
 )
 lang_code = "hi-en" if "hi-en" in lang_pair else "ta-en"
@@ -68,51 +224,53 @@ lang_code = "hi-en" if "hi-en" in lang_pair else "ta-en"
 task_choice = st.sidebar.radio(
     "Select NLP Task",
     [
-        "🔄 Translation",
-        "😊 Sentiment Analysis",
-        "🏷️ Named Entity Recognition (NER)",
-        "❓ Question Answering (QA)",
-        "🎯 Intent Detection",
+        "Sentiment Analysis",
+        "Intent Detection",
+        "Translation",
+        "Named Entity Recognition (NER)",
+        "Question Answering (QA)",
     ],
     index=0,
 )
 
-# Translation direction sub-option
 translation_dir = "cm_to_en"
-if "Translation" in task_choice:
-    translation_dir = st.sidebar.radio(
+if task_choice == "Translation":
+    dir_choice = st.sidebar.radio(
         "Translation Direction",
-        ["Code-Mixed → English", "English → Code-Mixed Hindi"],
+        ["Code-Mixed (Hinglish) -> English", "English -> Code-Mixed Hindi"],
         index=0,
     )
-    translation_dir = "cm_to_en" if "English" in translation_dir.split("→")[1] else "en_to_cm"
+    translation_dir = "cm_to_en" if "English" in dir_choice.split("->")[1] else "en_to_cm"
 
 st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Code-Mixed Language Understanding**\n\n"
-    "Unified framework supporting 5 NLP tasks for Hindi-English (Hinglish) code-mixed text.\n\n"
-    "Uses Helsinki-NLP translation models, TF-IDF/CRF baselines, and Transformer fine-tuning."
-)
+st.sidebar.markdown("""
+<div style="font-size: 0.8rem; color: #64748b; line-height: 1.5;">
+<strong>Architecture Overview</strong><br>
+Fine-tuned MuRIL transformer backbones with domain-adapted fallback classifiers for robust Hindi-English code-mixed natural language understanding.
+</div>
+""", unsafe_allow_html=True)
 
 TASK_MAP = {
-    "🔄 Translation": "translation",
-    "😊 Sentiment Analysis": "sentiment",
-    "🏷️ Named Entity Recognition (NER)": "ner",
-    "❓ Question Answering (QA)": "qa",
-    "🎯 Intent Detection": "intent",
+    "Translation": "translation",
+    "Sentiment Analysis": "sentiment",
+    "Named Entity Recognition (NER)": "ner",
+    "Question Answering (QA)": "qa",
+    "Intent Detection": "intent",
 }
+selected_task = TASK_MAP[task_choice]
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.markdown('<div class="main-title">Code-Mixed NLP Multitask Toolkit</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">Unified Language Understanding for Hindi-English (Hinglish) Code-Mixed Text</div>',
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<div class="header-container">
+    <div class="main-title">Hinglish NLP Toolkit</div>
+    <div class="sub-title">Unified Language Understanding & Generation for Hindi-English Code-Mixed Text</div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Predictor
+# Cached Predictor & Normalizer
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def get_predictor(lang: str) -> UnifiedPredictor:
@@ -122,10 +280,28 @@ predictor = get_predictor(lang_code)
 normalizer = CodeMixedNormalizer(lang_pair=lang_code)
 
 # ---------------------------------------------------------------------------
-# Sample inputs
+# Curated Sample Inputs
 # ---------------------------------------------------------------------------
 SAMPLES = {
-    "🔄 Translation": {
+    "Sentiment Analysis": [
+        "Yeh movie bahut achhi thi, casting aur direction mind blowing tha!",
+        "Khaana ekdum bekar tha, waste of money and time.",
+        "Flight timing change ho gaya, okayish service.",
+        "Product ki quality bahut achhi hai, highly recommended!",
+        "Worst customer care ever, phone bhi attend nahi karte.",
+        "Average movie thi, ek baar dekh sakte hain.",
+    ],
+    "Intent Detection": [
+        "Mujhe Delhi se Mumbai ki flight ticket book karni hai.",
+        "Aaj Bangalore me mausam kaisa hai, barish hogi kya?",
+        "Mere account ka balance kitna hai check karo.",
+        "Ek pizza order karo Dominos se dinner ke liye.",
+        "Kal subah 6 baje ka alarm set karo.",
+        "Meri flight booking cancel kardo refund chahiye.",
+        "Arijit Singh ke romantic gaane bajao Spotify pe.",
+        "Airport pahunchne ka sabse fastest rasta batao.",
+    ],
+    "Translation": {
         "cm_to_en": [
             "Aaj shaam ko hum sab friends milke party karenge.",
             "Delhi me weather today kafi pleasant hai.",
@@ -140,158 +316,221 @@ SAMPLES = {
             "The IPL match was played between Delhi Capitals and Rajasthan Royals.",
         ],
     },
-    "😊 Sentiment Analysis": [
-        "Yeh movie bohot acchi thi, casting aur direction mind blowing tha!",
-        "Khaana ekdum bekar tha, waste of money and time.",
-        "Flight timing change ho gaya, okayish service.",
-        "Product ki quality bahut achhi hai, highly recommended!",
-        "Worst customer care ever, phone bhi attend nahi karte.",
-    ],
-    "🏷️ Named Entity Recognition (NER)": [
+    "Named Entity Recognition (NER)": [
         "Shah Rukh Khan Mumbai me Mannat me rehte hain.",
         "Google ne Bangalore me naya R&D office open kiya hai.",
         "Narendra Modi Prime Minister of India ne Delhi me speech di.",
         "Virat Kohli ne BCCI ko letter likha hai.",
+        "Infosys aur TCS ne Pune campus expand kiya.",
     ],
-    "❓ Question Answering (QA)": [
+    "Question Answering (QA)": [
         "Shah Rukh Khan kahan rehte hain?",
         "Google ne naya office kahan khola hai?",
         "Virat Kohli ne kisko letter likha?",
     ],
-    "🎯 Intent Detection": [
-        "Mujhe Delhi se Mumbai ki flight ticket book karni hai.",
-        "Aaj Bangalore me rain hogi kya, weather report batao.",
-        "Mere account ka balance kitna hai check karo.",
-        "Ek pizza order karo Dominos se.",
-        "Kal subah 6 baje ka alarm set karo.",
-    ],
 }
 
-selected_task = TASK_MAP[task_choice]
-
 # ---------------------------------------------------------------------------
-# Input Area
+# Main Layout: Two Column
 # ---------------------------------------------------------------------------
-col_left, col_right = st.columns([1, 1])
+col_input, col_output = st.columns([1, 1], gap="large")
 
-with col_left:
-    st.subheader("📥 Input Text")
+with col_input:
+    st.markdown("#### Input Text")
 
     if selected_task == "translation":
-        sample_list = SAMPLES[task_choice].get(translation_dir, [])
+        sample_list = SAMPLES["Translation"].get(translation_dir, [])
     else:
         sample_list = SAMPLES.get(task_choice, [])
 
     preset = st.selectbox(
-        "Choose a sample or type your own:",
-        ["Custom..."] + sample_list,
+        "Select benchmark example or enter custom input:",
+        ["Custom input..."] + sample_list,
+        index=1 if sample_list else 0,
     )
-    default_val = sample_list[0] if preset == "Custom..." and sample_list else preset
+    default_val = sample_list[0] if (preset == "Custom input..." and sample_list) else preset
 
     if selected_task == "translation" and translation_dir == "en_to_cm":
-        input_label = "Enter English Text:"
-        placeholder = "Type English text here..."
+        input_label = "English Input"
+        placeholder = "Enter standard English text here..."
     else:
-        input_label = "Enter Code-Mixed (Hinglish) Text:"
-        placeholder = "Type Hinglish text here..."
+        input_label = "Code-Mixed (Hinglish) Input"
+        placeholder = "Enter Hindi-English code-mixed text here..."
 
-    user_text = st.text_area(input_label, value=default_val, height=100, placeholder=placeholder)
+    user_text = st.text_area(input_label, value=default_val, height=110, placeholder=placeholder)
 
     context_text = ""
     if selected_task == "qa":
         context_text = st.text_area(
-            "Context Paragraph (Required for QA):",
+            "Reference Context Passage:",
             value="Shah Rukh Khan Indian film actor hain. Woh Mumbai me Mannat house me rehte hain. Unhone bohot saari superhit movies me acting ki hai.",
-            height=120,
+            height=110,
         )
 
-    submit = st.button("🚀 Process", type="primary", use_container_width=True)
+    submit = st.button("Run Inference", type="primary", use_container_width=True)
 
-with col_right:
-    st.subheader("🔍 Preprocessing Inspection")
+    # Preprocessing telemetry
     if user_text:
         cleaned = normalizer.normalize(user_text)
         script = detect_script(cleaned)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Dominant Script", script.dominant_script.capitalize())
-        c2.metric("Mixed Script?", "Yes 🔀" if script.is_mixed_script else "No 🔤")
-        c3.metric("Mix Ratio", f"{script.mix_ratio:.1%}")
-        with st.expander("Normalized Text", expanded=False):
+        
+        st.markdown("<div style='margin-top: 1.25rem;'></div>", unsafe_allow_html=True)
+        st.markdown("#### Linguistic Analysis")
+        
+        st.markdown(f"""
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-label">Dominant Script</div>
+                <div class="metric-value">{script.dominant_script.capitalize()}</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Script Mix</div>
+                <div class="metric-value">{"Mixed" if script.is_mixed_script else "Single"}</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Mix Ratio</div>
+                <div class="metric-value">{script.mix_ratio:.1%}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.expander("Normalized Tokens", expanded=False):
             st.code(f"Original  : {user_text}\nNormalized: {cleaned}", language="text")
 
-# ---------------------------------------------------------------------------
-# Results
-# ---------------------------------------------------------------------------
-if submit and user_text:
-    st.markdown("---")
-    st.subheader("🎯 Model Prediction Output")
+with col_output:
+    st.markdown("#### Model Predictions")
 
-    with st.spinner("Running inference..."):
-        result = predictor.predict(
-            text=user_text,
-            task=selected_task,
-            context=context_text if selected_task == "qa" else None,
-            translation_direction=translation_dir,
-        )
+    if submit and user_text:
+        with st.spinner("Processing inference pipeline..."):
+            result = predictor.predict(
+                text=user_text,
+                task=selected_task,
+                context=context_text if selected_task == "qa" else None,
+                translation_direction=translation_dir,
+            )
 
-    st.caption(f"Model used: `{result.get('model_type', 'heuristic')}`")
+        model_type = result.get("model_type", "transformer")
 
-    # ---------- Translation ----------
-    if selected_task == "translation":
-        direction_label = result.get("direction", "")
-        st.info(f"**Direction:** {direction_label}")
-        st.success(f"**Translation Output:**\n\n{result['translation']}")
+        # 1. Sentiment Analysis
+        if selected_task == "sentiment":
+            sentiment = result["sentiment"].capitalize()
+            conf = result["confidence"]
+            badge_class = f"badge-{sentiment.lower()}"
 
-    # ---------- Sentiment ----------
-    elif selected_task == "sentiment":
-        s_val = result["sentiment"].capitalize()
-        conf = result["confidence"]
-        color_map = {"Positive": "green", "Negative": "red", "Neutral": "orange"}
-        badge = color_map.get(s_val, "blue")
+            st.markdown(f"""
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-title">Classification Result</span>
+                    <span class="badge {badge_class}">{sentiment}</span>
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.5rem;">
+                    Predicted Label: {sentiment}
+                </div>
+                <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.75rem;">
+                    Model Confidence: <strong>{conf:.1%}</strong>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.progress(conf)
+
+        # 2. Intent Detection
+        elif selected_task == "intent":
+            intent = result["intent"]
+            conf = result["confidence"]
+            top_k = result.get("top_k", [])
+
+            st.markdown(f"""
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-title">Identified Intent</span>
+                    <span class="badge badge-intent">{intent}</span>
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.5rem;">
+                    Primary Intent: <code>{intent}</code>
+                </div>
+                <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.5rem;">
+                    Confidence: <strong>{conf:.1%}</strong>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if top_k:
+                st.markdown("<div style='font-size: 0.825rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin: 0.75rem 0 0.25rem 0;'>Candidate Distribution</div>", unsafe_allow_html=True)
+                for cand_intent, cand_score in top_k:
+                    c1, c2 = st.columns([3, 1])
+                    c1.markdown(f"`{cand_intent}`")
+                    c2.markdown(f"**{cand_score:.1%}**")
+
+        # 3. Translation
+        elif selected_task == "translation":
+            direction = result.get("direction", "")
+            translated = result.get("translation", "")
+
+            st.markdown(f"""
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-title">Translation Direction</span>
+                    <span class="badge badge-neutral">{direction}</span>
+                </div>
+                <div style="font-size: 1.05rem; color: #0f172a; line-height: 1.6; margin-top: 0.5rem; padding: 0.75rem; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+                    {translated}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # 4. Named Entity Recognition
+        elif selected_task == "ner":
+            entities = result.get("entities", [])
+            st.markdown("""
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-title">Detected Entities</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+            if not entities:
+                st.info("No named entities detected in input.")
+            else:
+                for ent in entities:
+                    ent_type = ent["entity"].lower()
+                    chip_cls = f"entity-{ent_type}"
+                    st.markdown(f"""
+                    <div style="margin-bottom: 0.4rem;">
+                        <span class="entity-chip {chip_cls}">{ent['entity']}</span>
+                        <strong style="color: #0f172a;">{ent['word']}</strong>
+                        <span style="font-size: 0.8rem; color: #64748b; margin-left: 0.5rem;">({ent['score']:.1%})</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # 5. Question Answering
+        elif selected_task == "qa":
+            answer = result.get("answer", "")
+            conf = result.get("confidence", 0.0)
+
+            st.markdown(f"""
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-title">Extracted Span</span>
+                </div>
+                <div style="font-size: 1.15rem; font-weight: 600; color: #0f172a; margin: 0.5rem 0;">
+                    {answer}
+                </div>
+                <div style="font-size: 0.875rem; color: #64748b;">
+                    Extraction Confidence: <strong>{conf:.1%}</strong>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Telemetry footer
         st.markdown(f"""
-        <div class="metric-card">
-            <h3>Predicted Sentiment: <span style="color:{badge};">{s_val}</span></h3>
-            <p>Confidence Score: <b>{conf:.2%}</b></p>
+        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem; text-align: right;">
+            Model Engine: <code>{model_type}</code> | Device: <code>{predictor.device or 'auto'}</code>
         </div>
         """, unsafe_allow_html=True)
-        st.progress(conf)
-
-    # ---------- NER ----------
-    elif selected_task == "ner":
-        entities = result.get("entities", [])
-        if not entities:
-            st.info("No named entities detected.")
-        else:
-            st.write("**Extracted Entities:**")
-            for ent in entities:
-                tag_class = f"tag-{ent['entity'].lower()}"
-                st.markdown(
-                    f"<span class='entity-tag {tag_class}'>{ent['entity']}</span> "
-                    f"<b>{ent['word']}</b> (Confidence: {ent['score']:.2%})",
-                    unsafe_allow_html=True,
-                )
-
-    # ---------- QA ----------
-    elif selected_task == "qa":
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>Extracted Answer: <span style="color:#1E40AF;">{result['answer']}</span></h3>
-            <p>Confidence Score: <b>{result['confidence']:.2%}</b></p>
+    else:
+        st.markdown("""
+        <div style="border: 1px dashed #cbd5e1; border-radius: 8px; padding: 2.5rem 1rem; text-align: center; color: #94a3b8; font-size: 0.9rem;">
+            Select a sample input or type your own text, then click <strong>Run Inference</strong>.
         </div>
         """, unsafe_allow_html=True)
-
-    # ---------- Intent ----------
-    elif selected_task == "intent":
-        intent_val = result["intent"]
-        conf = result["confidence"]
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>Detected Intent: <span style="color:#6B21A8;">{intent_val}</span></h3>
-            <p>Confidence Score: <b>{conf:.2%}</b></p>
-        </div>
-        """, unsafe_allow_html=True)
-        top_k = result.get("top_k", [])
-        if top_k:
-            st.write("**Top Candidates:**")
-            for ik, sc in top_k:
-                st.write(f"- `{ik}`: {sc:.2%}")

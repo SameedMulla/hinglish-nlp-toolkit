@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -100,12 +101,21 @@ class IntentModel:
         **kwargs: Any,
     ) -> None:
         """Fine-tune the model for intent detection."""
+        from pathlib import Path
+
         # Build label map from data if not provided
         if not self.label_map and "intent" in train_dataset.column_names:
             unique_labels = sorted(set(train_dataset["intent"]))
             self.label_map = {i: str(l) for i, l in enumerate(unique_labels)}
             label2id = {str(l): i for i, l in enumerate(unique_labels)}
             self.num_labels = len(unique_labels)
+
+            # Reinitialise classifier head with correct num_labels
+            logger.info(f"Detected {self.num_labels} intent classes, reinitialising model head")
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                self.backbone, num_labels=self.num_labels
+            )
+            self.model.to(self.device)
 
             # Remap string labels to integer IDs
             train_dataset = train_dataset.map(
@@ -144,7 +154,7 @@ class IntentModel:
             load_best_model_at_end=True if val_tokenized else False,
             metric_for_best_model="macro_f1",
             fp16=torch.cuda.is_available(),
-            logging_steps=100,
+            logging_steps=50,
             report_to="none",
             **kwargs,
         )
@@ -163,7 +173,12 @@ class IntentModel:
         trainer.train()
         trainer.save_model(output_dir)
         self.tokenizer.save_pretrained(output_dir)
-        logger.info(f"Model saved to {output_dir}")
+
+        # Persist label map so from_pretrained can reload it
+        label_map_path = Path(output_dir) / "label_map.json"
+        with open(label_map_path, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in self.label_map.items()}, f, indent=2)
+        logger.info(f"Model + label_map saved to {output_dir}")
 
     def predict(self, text: str) -> Tuple[str, float]:
         """Predict intent for a single utterance.
@@ -178,7 +193,8 @@ class IntentModel:
             return_tensors="pt",
             truncation=True,
             max_length=self.max_length,
-        ).to(self.device)
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
@@ -198,7 +214,8 @@ class IntentModel:
             return_tensors="pt",
             truncation=True,
             max_length=self.max_length,
-        ).to(self.device)
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
@@ -216,13 +233,25 @@ class IntentModel:
         cls, path: str, num_labels: int = 26, **kwargs: Any
     ) -> "IntentModel":
         """Load a fine-tuned intent model from disk."""
+        from pathlib import Path
+
         instance = cls.__new__(cls)
         instance.tokenizer = AutoTokenizer.from_pretrained(path)
         instance.model = AutoModelForSequenceClassification.from_pretrained(path)
         instance.device = kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         instance.model.to(instance.device)
-        instance.num_labels = num_labels
-        instance.label_map = kwargs.get("label_map", {})
         instance.max_length = kwargs.get("max_length", 128)
         instance.backbone = path
+
+        # Load persisted label map
+        label_map_path = Path(path) / "label_map.json"
+        if label_map_path.exists():
+            with open(label_map_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            instance.label_map = {int(k): v for k, v in raw.items()}
+            instance.num_labels = len(instance.label_map)
+        else:
+            instance.label_map = kwargs.get("label_map", {})
+            instance.num_labels = num_labels
+
         return instance

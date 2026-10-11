@@ -14,7 +14,9 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -53,7 +55,7 @@ class SentimentModel:
         num_labels: int = 3,
         label_map: Optional[Dict[int, str]] = None,
         device: Optional[str] = None,
-        max_length: int = 512,
+        max_length: int = 128,
     ) -> None:
         self.backbone = backbone
         self.num_labels = num_labels
@@ -129,7 +131,7 @@ class SentimentModel:
             load_best_model_at_end=True if val_tokenized else False,
             metric_for_best_model="f1",
             fp16=torch.cuda.is_available(),
-            logging_steps=100,
+            logging_steps=50,
             report_to="none",
             **kwargs,
         )
@@ -148,6 +150,11 @@ class SentimentModel:
         trainer.train()
         trainer.save_model(output_dir)
         self.tokenizer.save_pretrained(output_dir)
+
+        # Persist label map
+        label_map_path = Path(output_dir) / "label_map.json"
+        with open(label_map_path, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in self.label_map.items()}, f, indent=2)
         logger.info(f"Model saved to {output_dir}")
 
     def predict(self, text: str) -> Tuple[str, float]:
@@ -163,7 +170,8 @@ class SentimentModel:
             return_tensors="pt",
             truncation=True,
             max_length=self.max_length,
-        ).to(self.device)
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
@@ -189,7 +197,16 @@ class SentimentModel:
         instance.device = kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         instance.model.to(instance.device)
         instance.num_labels = num_labels
-        instance.label_map = kwargs.get("label_map", {0: "negative", 1: "neutral", 2: "positive"})
-        instance.max_length = kwargs.get("max_length", 512)
+        
+        # Load label map if available
+        label_map_path = Path(path) / "label_map.json"
+        if label_map_path.exists():
+            with open(label_map_path, "r", encoding="utf-8") as f:
+                raw_map = json.load(f)
+            instance.label_map = {int(k): v for k, v in raw_map.items()}
+        else:
+            instance.label_map = kwargs.get("label_map", {0: "negative", 1: "neutral", 2: "positive"})
+
+        instance.max_length = kwargs.get("max_length", 128)
         instance.backbone = path
         return instance

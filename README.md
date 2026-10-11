@@ -30,22 +30,24 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-### 2. Setup Datasets (COMI-LINGUA)
-This toolkit utilizes the **COMI-LINGUA** datasets for training the baselines.
-1. Place the COMI-LINGUA dataset CSV files (`MT_train.csv`, `NER_train.csv`, etc.) into the `data/COMI-LINGUA/` directory.
-2. Run the preprocessing script to clean and normalize the data into JSON-lines format:
+### 2. Setup Datasets
+This toolkit automatically downloads and processes the latest datasets from Hugging Face and custom sources.
+Run the unified preprocessing script to prepare the data for training:
 ```bash
+python data/scripts/download_datasets.py
 python data/scripts/preprocess.py --tasks all
 ```
 *(This will generate task-ready files inside `data/processed/`)*
 
-### 3. Train Baseline Models
-The project relies on classical machine learning baselines (TF-IDF + SVM, and CRF Sequence Taggers) as fast, lower-bound models for classification and NER tasks.
-Run the training script to generate the model weights:
+### 3. Fine-Tune Transformer Models
+The project utilizes state-of-the-art Transformer models (e.g. `google/muril-base-cased` and `google/mt5-small`) fine-tuned for code-mixed text tasks.
+Run the training scripts for each task:
 ```bash
-python scripts/train_baselines.py
+python scripts/train.py --task sentiment --backbone google/muril-base-cased
+python scripts/train.py --task intent --backbone google/muril-base-cased
+python scripts/train.py --task ner --backbone google/muril-base-cased
 ```
-*(Models will be saved in the `models/` directory)*
+*(Fine-tuned models will be saved in the `models/` directory)*
 
 ### 4. Run the Web Application
 Test all the models interactively through the built-in Streamlit interface. The app handles script detection, dynamic model loading, and bidirectional translation.
