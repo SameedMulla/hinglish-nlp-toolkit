@@ -324,9 +324,34 @@ SAMPLES = {
         "Infosys aur TCS ne Pune campus expand kiya.",
     ],
     "Question Answering (QA)": [
-        "Shah Rukh Khan kahan rehte hain?",
-        "Google ne naya office kahan khola hai?",
-        "Virat Kohli ne kisko letter likha?",
+        {
+            "question": "Shah Rukh Khan kahan rehte hain?",
+            "context": "Shah Rukh Khan Indian film actor hain. Woh Mumbai me Mannat house me rehte hain. Unhone bohot saari superhit movies me acting ki hai.",
+        },
+        {
+            "question": "Google ne naya office kahan khola hai?",
+            "context": "Google ne Bangalore me naya R&D office open kiya hai jisme advanced machine learning systems develop honge.",
+        },
+        {
+            "question": "Virat Kohli ne kisko letter likha?",
+            "context": "Virat Kohli ne BCCI ko letter likha hai jisme unhone upcoming test matches ke preparation par discuss kiya.",
+        },
+        {
+            "question": "Match kahan khela gaya tha?",
+            "context": "IPL ka match Mumbai ke Wankhede stadium me khela gaya tha aur stadium spectators se full tha.",
+        },
+        {
+            "question": "Match kisne jeeta?",
+            "context": "Kal raat ke thrilling match me India ne Australia ko 5 wickets se hara kar match jeet liya.",
+        },
+        {
+            "question": "Meeting kab shuru hogi?",
+            "context": "Kal subah 10 baje conference hall me project ki urgent meeting shuru hogi.",
+        },
+        {
+            "question": "Kitne baje train aayegi?",
+            "context": "Rajdhani express shaam ko 6 baje platform number 4 par aayegi.",
+        },
     ],
 }
 
@@ -338,34 +363,74 @@ col_input, col_output = st.columns([1, 1], gap="large")
 with col_input:
     st.markdown("#### Input Text")
 
-    if selected_task == "translation":
-        sample_list = SAMPLES["Translation"].get(translation_dir, [])
-    else:
-        sample_list = SAMPLES.get(task_choice, [])
-
-    preset = st.selectbox(
-        "Select benchmark example or enter custom input:",
-        ["Custom input..."] + sample_list,
-        index=1 if sample_list else 0,
-    )
-    default_val = sample_list[0] if (preset == "Custom input..." and sample_list) else preset
-
-    if selected_task == "translation" and translation_dir == "en_to_cm":
-        input_label = "English Input"
-        placeholder = "Enter standard English text here..."
-    else:
-        input_label = "Code-Mixed (Hinglish) Input"
-        placeholder = "Enter Hindi-English code-mixed text here..."
-
-    user_text = st.text_area(input_label, value=default_val, height=110, placeholder=placeholder)
-
-    context_text = ""
     if selected_task == "qa":
+        qa_samples = SAMPLES["Question Answering (QA)"]
+        qa_options = ["Custom input..."] + [f"{item['question']}" for item in qa_samples]
+
+        selected_qa_idx = st.selectbox(
+            "Select benchmark QA pair or enter custom input:",
+            range(len(qa_options)),
+            format_func=lambda i: qa_options[i],
+            index=1,
+            key="qa_preset_select",
+        )
+
+        if selected_qa_idx == 0:
+            default_q = ""
+            default_ctx = ""
+        else:
+            default_q = qa_samples[selected_qa_idx - 1]["question"]
+            default_ctx = qa_samples[selected_qa_idx - 1]["context"]
+
+        user_text = st.text_area(
+            "Question (Code-Mixed / Hinglish):",
+            value=default_q,
+            height=85,
+            placeholder="Enter question here (e.g. Match kahan khela gaya tha?)...",
+            key=f"qa_question_input_{selected_qa_idx}",
+        )
         context_text = st.text_area(
             "Reference Context Passage:",
-            value="Shah Rukh Khan Indian film actor hain. Woh Mumbai me Mannat house me rehte hain. Unhone bohot saari superhit movies me acting ki hai.",
-            height=110,
+            value=default_ctx,
+            height=120,
+            placeholder="Enter context passage here...",
+            key=f"qa_context_input_{selected_qa_idx}",
         )
+    else:
+        if selected_task == "translation":
+            sample_list = SAMPLES["Translation"].get(translation_dir, [])
+        else:
+            sample_list = SAMPLES.get(task_choice, [])
+
+        options = ["Custom input..."] + sample_list
+        selected_idx = st.selectbox(
+            "Select benchmark example or enter custom input:",
+            range(len(options)),
+            format_func=lambda i: options[i],
+            index=1 if len(options) > 1 else 0,
+            key=f"preset_select_{selected_task}",
+        )
+
+        if selected_idx == 0:
+            default_val = ""
+        else:
+            default_val = options[selected_idx]
+
+        if selected_task == "translation" and translation_dir == "en_to_cm":
+            input_label = "English Input"
+            placeholder = "Enter standard English text here..."
+        else:
+            input_label = "Code-Mixed (Hinglish) Input"
+            placeholder = "Enter Hindi-English code-mixed text here..."
+
+        user_text = st.text_area(
+            input_label,
+            value=default_val,
+            height=110,
+            placeholder=placeholder,
+            key=f"text_input_{selected_task}_{selected_idx}",
+        )
+        context_text = ""
 
     submit = st.button("Run Inference", type="primary", use_container_width=True)
 
@@ -506,21 +571,38 @@ with col_output:
         # 5. Question Answering
         elif selected_task == "qa":
             answer = result.get("answer", "")
-            conf = result.get("confidence", 0.0)
+            conf = min(1.0, max(0.0, float(result.get("confidence", 0.0))))
+            ctx = result.get("context", context_text)
+
+            highlighted_ctx = ctx
+            if answer and answer in ctx:
+                highlighted_ctx = ctx.replace(
+                    answer,
+                    f"<mark style='background-color: #fef08a; color: #854d0e; padding: 2px 6px; border-radius: 4px; font-weight: 600;'>{answer}</mark>",
+                    1
+                )
 
             st.markdown(f"""
             <div class="result-card">
                 <div class="result-header">
-                    <span class="result-title">Extracted Span</span>
+                    <span class="result-title">Extracted Answer</span>
+                    <span class="badge badge-positive">{conf:.1%} Match</span>
                 </div>
-                <div style="font-size: 1.15rem; font-weight: 600; color: #0f172a; margin: 0.5rem 0;">
-                    {answer}
+                <div style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 0.5rem 0;">
+                    {answer if answer else '<span style="color: #94a3b8; font-weight: normal;">No clear answer span identified</span>'}
                 </div>
-                <div style="font-size: 0.875rem; color: #64748b;">
+                <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.75rem;">
                     Extraction Confidence: <strong>{conf:.1%}</strong>
+                </div>
+                <div style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #94a3b8; margin-top: 0.75rem; margin-bottom: 0.25rem;">
+                    Context Verification:
+                </div>
+                <div style="font-size: 0.95rem; line-height: 1.6; color: #334155; padding: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                    {highlighted_ctx}
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            st.progress(conf)
 
         # Telemetry footer
         st.markdown(f"""

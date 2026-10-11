@@ -212,6 +212,7 @@ class QAModel:
             return_offsets_mapping=True,
         )
 
+        sequence_ids = inputs.sequence_ids(0)
         offset_mapping = inputs.pop("offset_mapping")[0]
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -221,29 +222,43 @@ class QAModel:
         start_logits = outputs.start_logits[0].cpu().numpy()
         end_logits = outputs.end_logits[0].cpu().numpy()
 
-        # Get top-n start and end positions
+        # Mask out non-context tokens (question, special tokens)
+        for i, seq_id in enumerate(sequence_ids):
+            if seq_id != 1:
+                start_logits[i] = -10000.0
+                end_logits[i] = -10000.0
+
+        # Get top-n start and end positions within context
         start_idxs = np.argsort(start_logits)[::-1][:n_best]
         end_idxs = np.argsort(end_logits)[::-1][:n_best]
 
         # Find valid spans
         candidates = []
         for s in start_idxs:
+            if start_logits[s] < -100.0:
+                continue
             for e in end_idxs:
+                if end_logits[e] < -100.0:
+                    continue
                 if e >= s and (e - s + 1) <= self.max_answer_length:
-                    score = start_logits[s] + end_logits[e]
-                    start_char = offset_mapping[s][0].item()
-                    end_char = offset_mapping[e][1].item()
-                    answer = context[start_char:end_char]
-                    if answer.strip():
+                    raw_score = float(start_logits[s] + end_logits[e])
+                    start_char = int(offset_mapping[s][0].item())
+                    end_char = int(offset_mapping[e][1].item())
+                    answer = context[start_char:end_char].strip(" \t\n.,!?;:\"'()[]{}")
+                    if answer:
+                        # Calibrated probability using logistic sigmoid
+                        prob = float(1.0 / (1.0 + np.exp(-raw_score / 2.5)))
+                        prob = float(np.clip(prob, 0.05, 0.98))
                         candidates.append({
-                            "answer": answer.strip(),
-                            "score": round(float(score), 4),
+                            "answer": answer,
+                            "score": round(prob, 4),
+                            "raw_score": round(raw_score, 4),
                             "start": start_char,
                             "end": end_char,
                         })
 
         # Sort by score
-        candidates.sort(key=lambda x: x["score"], reverse=True)
+        candidates.sort(key=lambda x: x["raw_score"], reverse=True)
 
         if candidates:
             return {

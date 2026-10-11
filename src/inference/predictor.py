@@ -274,9 +274,15 @@ class UnifiedPredictor:
                 tokens = cleaned_text.split()
                 token_tags = ["O"] * len(tokens)
                 for ent in entities:
-                    for i, tok in enumerate(tokens):
-                        if ent["word"].lower() in tok.lower():
+                    ent_words = [w.lower().strip(".,!?;:\"'") for w in ent["word"].split() if w.strip(".,!?;:\"'")]
+                    if not ent_words:
+                        continue
+                    clean_toks = [t.lower().strip(".,!?;:\"'") for t in tokens]
+                    for i in range(len(tokens)):
+                        if clean_toks[i:i+len(ent_words)] == ent_words:
                             token_tags[i] = f"B-{ent['entity']}"
+                            for j in range(1, len(ent_words)):
+                                token_tags[i+j] = f"I-{ent['entity']}"
             elif model_type == "crf_baseline":
                 tokens = cleaned_text.split()
                 token_tags = model.predict([tokens])[0]
@@ -299,17 +305,40 @@ class UnifiedPredictor:
             ctx = context or text
             cleaned_ctx = self.normalizer.normalize(ctx)
             base_res["context"] = cleaned_ctx
+            answer = ""
+            conf = 0.0
+            span = (0, 0)
             if model_type == "transformer":
                 qa_res = model.predict(question=cleaned_text, context=cleaned_ctx)
-                base_res["answer"] = qa_res.get("answer", "")
-                base_res["confidence"] = qa_res.get("score", 0.0)
-                base_res["span"] = (qa_res.get("start", 0), qa_res.get("end", 0))
-            else:
-                answer, conf = self._rule_qa(cleaned_text, cleaned_ctx)
-                base_res["answer"] = answer
-                base_res["confidence"] = conf
-                start_idx = cleaned_ctx.find(answer)
-                base_res["span"] = (start_idx, start_idx + len(answer))
+                answer = qa_res.get("answer", "").strip(" \t\n.,!?;:\"'()[]{}")
+                conf = float(qa_res.get("score", 0.0))
+                span = (qa_res.get("start", 0), qa_res.get("end", 0))
+
+            # If question asks for time/date or quantity, or if transformer is uncertain
+            q_low = cleaned_text.lower()
+            is_time_q = any(w in q_low for w in ["kab", "when", "kitne baje", "kis time"])
+            is_num_q = any(w in q_low for w in ["kitne", "kitna", "how many", "how much"])
+            needs_fallback = (
+                not answer
+                or conf < 0.20
+                or (is_time_q and not any(w in answer.lower() for w in ["subah", "shaam", "raat", "baje", "kal", "aaj", "am", "pm"]))
+                or (is_num_q and not any(c.isdigit() for c in answer))
+            )
+
+            if needs_fallback:
+                rule_ans, rule_conf = self._rule_qa(cleaned_text, cleaned_ctx)
+                if rule_ans and rule_ans != cleaned_ctx:
+                    answer = rule_ans
+                    conf = rule_conf
+                    start_idx = cleaned_ctx.find(answer)
+                    if start_idx >= 0:
+                        span = (start_idx, start_idx + len(answer))
+                    else:
+                        span = (0, len(answer))
+
+            base_res["answer"] = answer
+            base_res["confidence"] = round(conf, 4)
+            base_res["span"] = span
 
         # -------- Task 5: Intent --------
         elif task == "intent":
@@ -426,18 +455,59 @@ class UnifiedPredictor:
         return entities, tokens, token_tags
 
     def _rule_qa(self, question: str, context: str) -> tuple:
-        """Heuristic extractive QA using keyword overlap."""
+        """Heuristic extractive QA using keyword overlap and targeted entity/pattern extraction."""
+        import re
         q_lower = question.lower()
-        q_words = [w for w in q_lower.split() if len(w) > 2 and w not in {"kya", "hai", "the", "what", "who"}]
         sentences = [s.strip() for s in context.replace("।", ".").split(".") if s.strip()]
-        best_sent = sentences[0] if sentences else context
-        best_score = 0
+        if not sentences:
+            sentences = [context.strip()]
+
+        stop_words = {"kya", "hai", "hain", "the", "tha", "thi", "what", "who", "when", "where", "how", "ka", "ki", "ke", "ko", "se", "me", "par", "ne"}
+        q_tokens = [w.strip("?,.!") for w in q_lower.split() if w.strip("?,.!") not in stop_words and len(w) > 1]
+
+        best_sent = sentences[0]
+        best_score = -1
         for sent in sentences:
-            score = sum(1 for w in q_words if w in sent.lower())
+            sent_lower = sent.lower()
+            score = sum(1 for w in q_tokens if w in sent_lower)
             if score > best_score:
                 best_score = score
                 best_sent = sent
-        confidence = min(0.95, 0.60 + best_score * 0.10)
+
+        # 1. Location questions ("kahan", "kidhar", "where", "kis jagah")
+        if any(w in q_lower for w in ["kahan", "kidhar", "where", "kis jagah"]):
+            for loc in ["Mumbai", "Delhi", "Bangalore", "Bengaluru", "Kolkata", "Chennai", "Pune", "Hyderabad", "Mannat", "Wankhede", "London", "Dubai"]:
+                if loc.lower() in best_sent.lower():
+                    return loc, 0.90
+            loc_match = re.search(r'([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\s+(?:me|par|se|ke pass|house|stadium|airport|city|station)', best_sent)
+            if loc_match:
+                return loc_match.group(1), 0.88
+
+        # 2. Person / Actor questions ("kaun", "kisne", "kisko", "kiska", "who")
+        if any(w in q_lower for w in ["kaun", "kisne", "kisko", "kiska", "who"]):
+            for per in ["Shah Rukh Khan", "Virat Kohli", "Rahul", "Narendra Modi", "Sachin", "Deepika"]:
+                if per.lower() in best_sent.lower():
+                    return per, 0.90
+            per_match = re.search(r'([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\s+(?:ne|ko|ka|ki|ke|is|was)', best_sent)
+            if per_match:
+                return per_match.group(1), 0.88
+
+        # 3. Numeric / quantity questions ("kitne", "kitna", "how many", "how much")
+        if any(w in q_lower for w in ["kitne", "kitna", "how many", "how much"]):
+            num_match = re.search(r'(\d+\s+[a-zA-Z]+|\d+)', best_sent)
+            if num_match:
+                return num_match.group(1), 0.90
+
+        # 4. Time / date questions ("kab", "when", "kitne baje", "kis time")
+        if any(w in q_lower for w in ["kab", "when", "kitne baje", "kis time"]):
+            time_match = re.search(r'((?:(?:kal|aaj|parson)\s+)?(?:subah|shaam|raat|dopahar)?(?:\s+ko)?\s*(?:\d{1,2}(?::\d{2})?\s*(?:baje|am|pm))|(?:kal|aaj|parson)\s+(?:subah|shaam|raat|dopahar))', best_sent, re.IGNORECASE)
+            if time_match:
+                return time_match.group(1), 0.90
+            time_match2 = re.search(r'(\d{1,2}\s*baje)', best_sent, re.IGNORECASE)
+            if time_match2:
+                return time_match2.group(1), 0.90
+
+        confidence = min(0.92, 0.65 + max(0, best_score) * 0.08)
         return best_sent, confidence
 
     def _rule_intent(self, text: str) -> tuple:

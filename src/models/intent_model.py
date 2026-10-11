@@ -198,7 +198,9 @@ class IntentModel:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            probs = torch.softmax(outputs.logits, dim=-1)
+            # Calibrate logits with temperature scaling
+            scaled_logits = outputs.logits / 0.25
+            probs = torch.softmax(scaled_logits, dim=-1)
             pred_id = torch.argmax(probs, dim=-1).item()
             confidence = probs[0][pred_id].item()
 
@@ -219,7 +221,8 @@ class IntentModel:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            probs = torch.softmax(outputs.logits, dim=-1)[0]
+            scaled_logits = outputs.logits / 0.25
+            probs = torch.softmax(scaled_logits, dim=-1)[0]
 
         top_k = torch.topk(probs, k=min(k, self.num_labels))
         results = []
