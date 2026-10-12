@@ -52,10 +52,19 @@ Instead of monolingual models (BERT) or multilingual models without Indian langu
 * **Implementation**: Encapsulated in [`QAModel`](file:///c:/Projects/NLP/src/models/qa_model.py).
 
 #### Task 5: Intent Detection
-* **Architecture**: `AutoModelForSequenceClassification` on MuRIL mapping pooled representation to 9 operational conversational intent categories:
-  `book_flight`, `get_weather`, `check_balance`, `order_food`, `set_alarm`, `cancel_booking`, `play_music`, `get_directions`, `customer_care`.
-* **Temperature Calibration**: Applied temperature scaling ($T = 0.25$) on logits to ensure sharp, calibrated probability distributions across top-$k$ candidates.
-* **Implementation**: Encapsulated in [`IntentModel`](file:///c:/Projects/NLP/src/models/intent_model.py).
+* **Architecture**: Fine-tuned `AutoModelForSequenceClassification` on MuRIL (`google/muril-base-cased`) and calibrated TF-IDF + Logistic Regression baseline mapping utterances to 32 operational intent categories:
+  - **Travel & Logistics**: `book_flight`, `cab_booking`, `hotel_booking`, `get_directions`, `cancel_booking`
+  - **Finance & Utilities**: `check_balance`, `send_money`, `recharge_bill`
+  - **Lifestyle & Entertainment**: `order_food`, `play_music`, `movie_recommendation`, `sports_update`, `shopping`
+  - **Productivity & Alarms**: `set_alarm`, `set_reminder`, `get_weather`
+  - **Health & Medicine**: `health_advice`, `medicine_reminder`
+  - **Conversation & Social**: `greeting`, `farewell`, `thank_you`, `apology`, `affirmation`, `negation`, `tell_joke`
+  - **Information & Web**: `general_knowledge`, `news_update`, `search_web`, `customer_care`
+  - **Safety & Distress**: `emergency_help`, `mental_health_distress` (triggers immediate crisis helpline cards)
+  - **Out-of-Scope**: `no_intent_detected` (explicit class for meaningless, out-of-domain, or low-confidence inputs)
+* **Dataset Curation**: Generated 3,840 training samples and 576 validation samples across all 32 classes using high-signal Hindi-English Code-Mixed (Hinglish), Romanized Hindi, and English variations.
+* **Calibrated Confidence**: Softmax probabilities with out-of-domain rejection threshold ($< 0.30 \rightarrow$ `no_intent_detected`).
+* **Implementation**: Encapsulated in [`IntentModel`](file:///c:/Users/siddh/Downloads/NLP/NLP/src/models/intent_model.py) and [`TFIDFClassifier`](file:///c:/Users/siddh/Downloads/NLP/NLP/src/models/baselines.py).
 
 ---
 

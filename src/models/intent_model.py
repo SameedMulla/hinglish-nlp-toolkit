@@ -98,83 +98,90 @@ class IntentModel:
         num_epochs: int = 15,
         batch_size: int = 32,
         learning_rate: float = 2e-5,
+        freeze_backbone: Optional[bool] = None,
         **kwargs: Any,
     ) -> None:
         """Fine-tune the model for intent detection."""
         from pathlib import Path
 
-        # Build label map from data if not provided
-        if not self.label_map and "intent" in train_dataset.column_names:
-            unique_labels = sorted(set(train_dataset["intent"]))
-            self.label_map = {i: str(l) for i, l in enumerate(unique_labels)}
-            label2id = {str(l): i for i, l in enumerate(unique_labels)}
-            self.num_labels = len(unique_labels)
+        if freeze_backbone is None:
+            freeze_backbone = not torch.cuda.is_available()
 
-            # Reinitialise classifier head with correct num_labels
-            logger.info(f"Detected {self.num_labels} intent classes, reinitialising model head")
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                self.backbone, num_labels=self.num_labels
-            )
-            self.model.to(self.device)
+        # Extract samples from Path, list, or HF Dataset
+        if isinstance(train_dataset, (str, Path)):
+            with open(train_dataset, "r", encoding="utf-8") as f:
+                train_data = [json.loads(line) for line in f if line.strip()]
+        elif isinstance(train_dataset, list):
+            train_data = train_dataset
+        elif hasattr(train_dataset, "to_list"):
+            train_data = train_dataset.to_list()
+        else:
+            try:
+                train_data = [dict(train_dataset[i]) for i in range(len(train_dataset))]
+            except Exception:
+                train_data = list(train_dataset)
 
-            # Remap string labels to integer IDs
-            train_dataset = train_dataset.map(
-                lambda x: {"label": label2id[str(x["intent"])]},
-            )
-            if val_dataset is not None:
-                val_dataset = val_dataset.map(
-                    lambda x: {"label": label2id[str(x["intent"])]},
-                )
+        unique_labels = sorted(set(d.get("intent", d.get("label")) for d in train_data))
+        self.label_map = {i: str(l) for i, l in enumerate(unique_labels)}
+        label2id = {str(l): i for i, l in enumerate(unique_labels)}
+        self.num_labels = len(unique_labels)
 
-        # Tokenize
-        cols_to_remove = [c for c in train_dataset.column_names if c not in ("label",)]
-        train_tokenized = train_dataset.map(
-            self._tokenize_function, batched=True, remove_columns=cols_to_remove,
+        logger.info(f"Detected {self.num_labels} intent classes, initializing model head")
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            self.backbone, num_labels=self.num_labels
         )
-        val_tokenized = None
-        if val_dataset is not None:
-            cols_to_remove_val = [c for c in val_dataset.column_names if c not in ("label",)]
-            val_tokenized = val_dataset.map(
-                self._tokenize_function, batched=True, remove_columns=cols_to_remove_val,
-            )
+        self.model.to(self.device)
 
-        data_collator = DataCollatorWithPadding(self.tokenizer)
+        if freeze_backbone:
+            base = getattr(self.model, "bert", getattr(self.model, "roberta", getattr(self.model, "base_model", None)))
+            if base is not None:
+                for param in base.parameters():
+                    param.requires_grad = False
+                logger.info("Froze backbone encoder; fine-tuning classification head.")
 
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=num_epochs,
-            per_device_train_batch_size=batch_size,
-            per_device_eval_batch_size=batch_size * 2,
-            learning_rate=learning_rate,
-            weight_decay=0.01,
-            warmup_ratio=0.1,
-            eval_strategy="epoch" if val_tokenized else "no",
-            save_strategy="epoch",
-            save_total_limit=3,
-            load_best_model_at_end=True if val_tokenized else False,
-            metric_for_best_model="macro_f1",
-            fp16=torch.cuda.is_available(),
-            logging_steps=50,
-            report_to="none",
-            **kwargs,
+        texts = [d["text"] for d in train_data]
+        labels = [label2id[str(d.get("intent", d.get("label")))] for d in train_data]
+
+        encodings = self.tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
         )
+        labels_tensor = torch.tensor(labels, dtype=torch.long)
 
-        trainer = Trainer(
-            model=self.model,
-            args=training_args,
-            train_dataset=train_tokenized,
-            eval_dataset=val_tokenized,
-            data_collator=data_collator,
-            processing_class=self.tokenizer,
-            compute_metrics=self._compute_metrics,
+        dataset = torch.utils.data.TensorDataset(
+            encodings["input_ids"],
+            encodings["attention_mask"],
+            labels_tensor,
         )
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        logger.info("Starting intent model training...")
-        trainer.train()
-        trainer.save_model(output_dir)
+        opt_lr = 1e-3 if freeze_backbone else learning_rate
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.model.parameters()), lr=opt_lr)
+
+        logger.info(f"Starting PyTorch training: {len(texts)} samples, {num_epochs} epochs, batch_size={batch_size}")
+        self.model.train()
+        for epoch in range(num_epochs):
+            total_loss = 0.0
+            for b_ids, b_mask, b_lbls in loader:
+                optimizer.zero_grad()
+                b_ids = b_ids.to(self.device)
+                b_mask = b_mask.to(self.device)
+                b_lbls = b_lbls.to(self.device)
+                outputs = self.model(input_ids=b_ids, attention_mask=b_mask, labels=b_lbls)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+            avg_loss = total_loss / max(1, len(loader))
+            logger.info(f"Epoch {epoch + 1}/{num_epochs} - Loss: {avg_loss:.4f}")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        self.model.save_pretrained(output_dir)
         self.tokenizer.save_pretrained(output_dir)
 
-        # Persist label map so from_pretrained can reload it
         label_map_path = Path(output_dir) / "label_map.json"
         with open(label_map_path, "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in self.label_map.items()}, f, indent=2)
@@ -198,9 +205,7 @@ class IntentModel:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            # Calibrate logits with temperature scaling
-            scaled_logits = outputs.logits / 0.25
-            probs = torch.softmax(scaled_logits, dim=-1)
+            probs = torch.softmax(outputs.logits, dim=-1)
             pred_id = torch.argmax(probs, dim=-1).item()
             confidence = probs[0][pred_id].item()
 
@@ -221,8 +226,7 @@ class IntentModel:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            scaled_logits = outputs.logits / 0.25
-            probs = torch.softmax(scaled_logits, dim=-1)[0]
+            probs = torch.softmax(outputs.logits, dim=-1)[0]
 
         top_k = torch.topk(probs, k=min(k, self.num_labels))
         results = []

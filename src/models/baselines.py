@@ -85,7 +85,6 @@ class TFIDFClassifier:
                 random_state=random_state,
                 class_weight="balanced",
                 solver="lbfgs",
-                multi_class="multinomial",
             )
 
         self.pipeline = Pipeline([
@@ -124,6 +123,27 @@ class TFIDFClassifier:
     def predict(self, texts: List[str]) -> np.ndarray:
         """Predict labels for input texts."""
         return self.pipeline.predict(texts)
+
+    def predict_proba(self, texts: List[str]) -> np.ndarray:
+        """Predict class probability distribution for input texts."""
+        clf = self.pipeline.named_steps["clf"]
+        if hasattr(clf, "predict_proba"):
+            return self.pipeline.predict_proba(texts)
+        elif hasattr(clf, "decision_function"):
+            df = self.pipeline.decision_function(texts)
+            if df.ndim == 1:
+                df = np.vstack([-df, df]).T
+            exp = np.exp(df - np.max(df, axis=1, keepdims=True))
+            return exp / np.sum(exp, axis=1, keepdims=True)
+        else:
+            raise NotImplementedError("Underlying classifier does not support probability estimation")
+
+    def predict_with_top_k(self, text: str, k: int = 3) -> List[Tuple[str, float]]:
+        """Predict top-k classes with confidence scores for a single text."""
+        probs = self.predict_proba([text])[0]
+        classes = self.pipeline.classes_
+        top_indices = np.argsort(probs)[::-1][:min(k, len(classes))]
+        return [(str(classes[idx]), round(float(probs[idx]), 4)) for idx in top_indices]
 
     def evaluate(
         self,

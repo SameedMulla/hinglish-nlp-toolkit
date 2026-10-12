@@ -36,6 +36,19 @@ class UnifiedPredictor:
 
     SUPPORTED_TASKS = ["translation", "sentiment", "ner", "qa", "intent"]
 
+    # All known intent labels exposed to the zero-shot LLM fallback
+    ALL_INTENT_LABELS = [
+        "book_flight", "get_weather", "check_balance", "order_food",
+        "cancel_booking", "play_music", "set_alarm", "get_directions",
+        "customer_care", "mental_health_distress", "emergency_help",
+        "greeting", "farewell", "thank_you", "apology",
+        "tell_joke", "general_knowledge", "news_update",
+        "shopping", "movie_recommendation", "sports_update",
+        "health_advice", "medicine_reminder", "cab_booking",
+        "hotel_booking", "recharge_bill", "send_money",
+        "search_web", "set_reminder", "general_query",
+    ]
+
     def __init__(
         self,
         lang_pair: str = "hi-en",
@@ -54,6 +67,7 @@ class UnifiedPredictor:
 
         self._loaded_models: Dict[str, Any] = {}
         self._translation_pipeline = None
+        self._zero_shot_pipeline = None
 
     # ------------------------------------------------------------------
     # Translation pipeline (HuggingFace)
@@ -94,6 +108,19 @@ class UnifiedPredictor:
             return self._loaded_models[task]
 
         task_path = self.models_dir / task
+
+        # For intent detection, prioritize the trained 33-class classifier with calibrated probabilities
+        if task == "intent":
+            baseline_file = task_path / f"baseline_{task}.joblib"
+            if baseline_file.exists():
+                try:
+                    from src.models.baselines import TFIDFClassifier
+                    clf = TFIDFClassifier.load(str(baseline_file))
+                    self._loaded_models[task] = ("tfidf_baseline", clf)
+                    logger.info(f"Loaded TF-IDF classifier for '{task}'")
+                    return self._loaded_models[task]
+                except Exception as e:
+                    logger.warning(f"Failed loading TF-IDF baseline for {task}: {e}")
 
         # 1. Transformer checkpoint
         if task_path.exists() and (task_path / "config.json").exists():
@@ -342,16 +369,66 @@ class UnifiedPredictor:
 
         # -------- Task 5: Intent --------
         elif task == "intent":
-            if model_type == "transformer":
+            # --- Safety-critical rules always take absolute priority ---
+            rule_intent, rule_conf, rule_top_k = self._rule_intent(cleaned_text)
+            rule_matched = rule_conf >= 0.70 and rule_intent != "no_intent_detected"
+
+            if rule_matched and rule_intent in ("mental_health_distress", "threat_violence", "emergency_help"):
+                intent, confidence, top_k = rule_intent, rule_conf, rule_top_k
+                base_res["model_type"] = "safety_system"
+
+            elif model_type == "transformer":
                 intent, confidence = model.predict(cleaned_text)
                 top_k = model.predict_with_top_k(cleaned_text, k=3)
+                if confidence >= 0.35 and intent != "no_intent_detected":
+                    base_res["model_type"] = "transformer"
+                elif rule_matched:
+                    intent, confidence, top_k = rule_intent, rule_conf, rule_top_k
+                    base_res["model_type"] = "rule_based"
+                else:
+                    zs_intent, zs_conf, zs_top_k = self._zero_shot_intent(cleaned_text)
+                    if zs_conf > confidence and zs_intent != "general_query":
+                        intent, confidence, top_k = zs_intent, zs_conf, zs_top_k
+                        base_res["model_type"] = "zero_shot_llm"
+
             elif model_type == "tfidf_baseline":
-                preds = model.predict([cleaned_text])
-                intent = str(preds[0])
-                confidence = 0.89
-                top_k = [(intent, confidence), ("other", 0.08)]
+                if hasattr(model, "predict_with_top_k"):
+                    top_k = model.predict_with_top_k(cleaned_text, k=3)
+                    intent, confidence = top_k[0]
+                else:
+                    preds = model.predict([cleaned_text])
+                    intent = str(preds[0])
+                    confidence = 0.85
+                    top_k = [(intent, confidence)]
+
+                if confidence >= 0.35 and intent != "no_intent_detected":
+                    base_res["model_type"] = "tfidf_baseline"
+                elif rule_matched:
+                    intent, confidence, top_k = rule_intent, rule_conf, rule_top_k
+                    base_res["model_type"] = "rule_based"
+                else:
+                    intent = "no_intent_detected"
+                    confidence = 0.0
+                    top_k = []
+
+            elif rule_matched:
+                intent, confidence, top_k = rule_intent, rule_conf, rule_top_k
+                base_res["model_type"] = "rule_based"
+
             else:
-                intent, confidence, top_k = self._rule_intent(cleaned_text)
+                zs_intent, zs_conf, zs_top_k = self._zero_shot_intent(cleaned_text)
+                if zs_conf > 0.40 and zs_intent != "general_query":
+                    intent, confidence, top_k = zs_intent, zs_conf, zs_top_k
+                    base_res["model_type"] = "zero_shot_llm"
+                else:
+                    intent, confidence, top_k = "no_intent_detected", 0.0, []
+
+            # --- Final gate: catch explicit out-of-scope or very low confidence ---
+            if intent == "no_intent_detected" or (not rule_matched and confidence < 0.30):
+                intent = "no_intent_detected"
+                confidence = 0.0
+                top_k = []
+
             base_res["intent"] = intent
             base_res["confidence"] = confidence
             base_res["top_k"] = top_k
@@ -511,31 +588,270 @@ class UnifiedPredictor:
         return best_sent, confidence
 
     def _rule_intent(self, text: str) -> tuple:
-        """Rule-based intent detection."""
+        """Rule-based intent detection with 28+ intent categories."""
         lower = text.lower()
         intent_keywords = {
-            "book_flight": ["flight", "ticket", "book", "fly", "airline", "udaan"],
-            "get_weather": ["weather", "mausam", "rain", "barish", "temperature", "sunny", "cloudy"],
-            "check_balance": ["balance", "account", "paise", "money", "bank", "statement"],
-            "order_food": ["food", "khaana", "order", "deliver", "restaurant", "zomato", "swiggy"],
-            "cancel_booking": ["cancel", "refund", "booking", "return"],
-            "play_music": ["music", "song", "gaana", "play", "bajao"],
-            "set_alarm": ["alarm", "timer", "wake", "remind", "yaad"],
-            "get_directions": ["direction", "rasta", "route", "navigate", "map"],
+            # --- Travel & Logistics ---
+            "book_flight": [
+                "flight", "ticket", "book", "fly", "airline", "udaan", "plane",
+                "airport", "boarding", "departure", "aeroplane",
+            ],
+            "cab_booking": [
+                "cab", "taxi", "uber", "ola", "ride", "auto", "rickshaw",
+                "gaadi", "car book", "pick me",
+            ],
+            "hotel_booking": [
+                "hotel", "room", "stay", "check in", "checkout", "hostel",
+                "accommodation", "resort", "oyo",
+            ],
+            "get_directions": [
+                "direction", "rasta", "route", "navigate", "map", "kahan hai",
+                "kaise pahunche", "nearest", "paas mein", "location",
+            ],
+            "cancel_booking": [
+                "cancel", "refund", "booking cancel", "return", "wapas",
+                "ticket cancel", "order cancel",
+            ],
+
+            # --- Weather ---
+            "get_weather": [
+                "weather", "mausam", "rain", "barish", "temperature", "sunny",
+                "cloudy", "aaj ka mausam", "baarish hogi", "garmi", "sardi",
+            ],
+
+            # --- Finance ---
+            "check_balance": [
+                "balance", "account", "paise", "money", "bank", "statement",
+                "kitne paise", "wallet", "upi",
+            ],
+            "send_money": [
+                "send money", "transfer", "bhejo", "paytm", "gpay", "phonepe",
+                "upi send", "transaction", "payment", "paise bhejo",
+            ],
+            "recharge_bill": [
+                "recharge", "bill pay", "electricity", "mobile recharge",
+                "broadband", "dth", "top up",
+            ],
+
+            # --- Food ---
+            "order_food": [
+                "food", "khaana", "order", "deliver", "restaurant", "zomato",
+                "swiggy", "pizza", "burger", "khana mangao", "delivery",
+            ],
+
+            # --- Entertainment ---
+            "play_music": [
+                "music", "song", "gaana", "play", "bajao", "spotify",
+                "gaana.com", "youtube music", "playlist", "singer", "album",
+            ],
+            "movie_recommendation": [
+                "movie", "film", "web series", "show", "netflix", "amazon prime",
+                "hotstar", "koi acchi movie", "recommend", "dekhna",
+            ],
+            "sports_update": [
+                "cricket", "ipl", "match", "score", "football", "kabaddi",
+                "khel", "team", "won", "lost", "tournament",
+            ],
+
+            # --- Alarms & Reminders ---
+            "set_alarm": [
+                "alarm", "timer", "wake", "wake up", "uthao", "jagao", "set alarm",
+            ],
+            "set_reminder": [
+                "reminder", "remind me", "remind", "yaad dilao", "yaad dilana", "note karo", "don't forget",
+                "meeting yaad", "schedule",
+            ],
+
+            # --- Health ---
+            "health_advice": [
+                "health", "sehat", "doctor", "beemar", "hospital",
+                "symptoms", "fever", "bukhar", "pain", "dard",
+                "sir dard", "pet dard", "injury", "khansi",
+            ],
+            "medicine_reminder": [
+                "dawa leni hai", "medicine time", "tablet", "pill", "dose",
+                "prescription", "dawa", "medicine reminder",
+            ],
+
+            # --- Affirmation & Negation ---
+            "affirmation": [
+                "haan", "yes", "bilkul", "agree", "correct", "confirm", "sahi hai",
+            ],
+            "negation": [
+                "nahi", "nahin", "never", "disagree", "nope", "mat karo", "don't",
+            ],
+
+            # --- Shopping ---
+            "shopping": [
+                "buy", "shop", "kharido", "amazon", "flipkart", "order karna",
+                "price", "discount", "sale", "product", "khareedna",
+            ],
+
+            # --- Information / General ---
+            "general_knowledge": [
+                "kya hai", "what is", "batao", "explain", "kaun tha", "prime minister",
+                "president", "history", "science", "itihas", "geography", "who is",
+            ],
+            "news_update": [
+                "news", "khabar", "aaj ki news", "latest", "update",
+                "headlines", "breaking", "samachar",
+            ],
+            "search_web": [
+                "search", "google", "dhundo", "find", "lookup", "wiki",
+                "internet pe",
+            ],
+
+            # --- Social / Conversational ---
+            "greeting": [
+                "hello", "hi", "namaste", "namaskar", "hey", "good morning",
+                "good evening", "kya haal", "kaisa hai", "salam", "sat sri akal",
+            ],
+            "farewell": [
+                "bye", "goodbye", "alvida", "phir milenge", "take care",
+                "see you", "good night", "shubh ratri",
+            ],
+            "thank_you": [
+                "thank", "shukriya", "dhanyawad", "thanks", "bahut acha",
+                "appreciate", "meherbani",
+            ],
+            "apology": [
+                "sorry", "maafi", "galti", "meri bhool", "apologize",
+                "excuse me", "mujhe maaf",
+            ],
+            "tell_joke": [
+                "joke", "funny", "hasa", "hasao", "mazak", "comedy",
+                "koi joke", "funny kuch batao",
+            ],
+
+            # --- Emergency & Mental Health & Violence ---
+            "emergency_help": [
+                "help", "bachao", "emergency", "accident", "fire", "thief",
+                "chor", "danger", "attack", "ambulance", "police",
+            ],
+            "mental_health_distress": [
+                "marna", "marna chahta", "marna chahti", "suicide", "khud ko hurt",
+                "jeena nahi", "jina nahi", "zindagi nahi", "bahut dukh",
+                "bahut takleef", "depressed", "depression", "anxiety",
+                "akela", "koi nahi", "rona aa raha", "hurt myself",
+                "end my life", "give up", "hopeless", "nirasha",
+                "thak gaya", "thak gayi", "nahi rehna",
+            ],
+            "threat_violence": [
+                "marunga", "marungi", "peetunga", "peet dunga", "thappad",
+                "maar dunga", "jaan se maar", "kill him", "kill you", "punch",
+                "beat up", "attack", "goli maar", "zinda nahi", "sabak sikhaunga",
+            ],
+
+            # --- Customer Service ---
+            "customer_care": [
+                "complaint", "issue", "problem", "support", "helpline",
+                "customer care", "not working", "error", "fix", "refund",
+            ],
         }
-        best_intent = "general_query"
+
+        import re
+        tokens = re.findall(r'\b\w+\b', lower)
+        token_set = set(tokens)
+
+        best_intent = "no_intent_detected"
         best_score = 0
         scores = {}
         for intent, keywords in intent_keywords.items():
-            score = sum(1 for kw in keywords if kw in lower)
-            scores[intent] = score
+            score = 0
+            for kw in keywords:
+                if " " in kw:
+                    if re.search(r'\b' + re.escape(kw) + r'\b', lower):
+                        score += 1
+                else:
+                    if kw in token_set:
+                        score += 1
+            if score > 0:
+                scores[intent] = score
             if score > best_score:
                 best_score = score
                 best_intent = intent
 
-        confidence = min(0.95, 0.70 + best_score * 0.10)
+        if best_score == 0:
+            return "no_intent_detected", 0.0, []
+
+        confidence = min(0.95, 0.75 + (best_score - 1) * 0.10)
         top_k = sorted(scores.items(), key=lambda x: -x[1])[:3]
-        top_k = [(k, min(0.95, 0.70 + v * 0.10)) for k, v in top_k]
-        if not top_k or top_k[0][1] == 0.70:
-            top_k = [(best_intent, confidence)]
+        top_k = [(k, min(0.95, 0.75 + (v - 1) * 0.10)) for k, v in top_k]
         return best_intent, confidence, top_k
+
+    def _get_zero_shot_pipeline(self):
+        """Lazy-load zero-shot classification pipeline (facebook/bart-large-mnli)."""
+        if self._zero_shot_pipeline is None:
+            try:
+                from transformers import pipeline as hf_pipeline
+                logger.info("Loading zero-shot intent classification pipeline (facebook/bart-large-mnli)...")
+                self._zero_shot_pipeline = hf_pipeline(
+                    "zero-shot-classification",
+                    model="facebook/bart-large-mnli",
+                    device=0 if self.device == "cuda" else -1,
+                )
+                logger.info("Zero-shot pipeline loaded.")
+            except Exception as e:
+                logger.warning(f"Could not load zero-shot pipeline: {e}")
+                self._zero_shot_pipeline = False  # Sentinel: don't retry
+        return self._zero_shot_pipeline if self._zero_shot_pipeline else None
+
+    def _zero_shot_intent(self, text: str) -> tuple:
+        """Zero-shot intent classification using a pretrained NLI model.
+
+        Falls back gracefully to _rule_intent if the pipeline is unavailable.
+        Uses facebook/bart-large-mnli which maps every intent label as a
+        natural language hypothesis against the user utterance.
+        """
+        pipe = self._get_zero_shot_pipeline()
+        if pipe is None:
+            return self._rule_intent(text)
+
+        # Human-readable label descriptions improve NLI accuracy
+        label_descriptions = {
+            "book_flight":             "book a flight or airline ticket",
+            "cab_booking":             "book a cab, taxi, or ride",
+            "hotel_booking":           "book a hotel or accommodation",
+            "get_directions":          "get directions or navigate to a place",
+            "cancel_booking":          "cancel a booking or get a refund",
+            "get_weather":             "check the weather or forecast",
+            "check_balance":           "check bank balance or account details",
+            "send_money":              "send money or make a payment",
+            "recharge_bill":           "recharge a phone or pay a bill",
+            "order_food":              "order food or get a delivery",
+            "play_music":              "play music or a song",
+            "movie_recommendation":    "get a movie or show recommendation",
+            "sports_update":           "get a sports score or update",
+            "set_alarm":               "set an alarm or timer",
+            "set_reminder":            "set a reminder",
+            "health_advice":           "get health advice or medical help",
+            "medicine_reminder":       "be reminded to take medicine",
+            "shopping":                "shop online or buy a product",
+            "general_knowledge":       "ask a general knowledge question",
+            "news_update":             "get the latest news",
+            "search_web":              "search the internet",
+            "greeting":                "say hello or greet someone",
+            "farewell":                "say goodbye",
+            "thank_you":               "express gratitude or thanks",
+            "apology":                 "apologize or say sorry",
+            "tell_joke":               "hear a joke or something funny",
+            "emergency_help":          "call for emergency help or report danger",
+            "mental_health_distress":  "express emotional distress, sadness, or thoughts of self-harm",
+            "customer_care":           "contact customer support or report an issue",
+            "general_query":           "ask a general or unclassified question",
+        }
+
+        candidate_labels = list(label_descriptions.values())
+        try:
+            result = pipe(text, candidate_labels=candidate_labels, multi_label=False)
+            # Map description back to intent key
+            desc_to_key = {v: k for k, v in label_descriptions.items()}
+            top_intents = [
+                (desc_to_key.get(lbl, lbl), round(score, 4))
+                for lbl, score in zip(result["labels"][:3], result["scores"][:3])
+            ]
+            best_intent, best_conf = top_intents[0]
+            return best_intent, best_conf, top_intents
+        except Exception as e:
+            logger.warning(f"Zero-shot inference failed: {e}")
+            return self._rule_intent(text)

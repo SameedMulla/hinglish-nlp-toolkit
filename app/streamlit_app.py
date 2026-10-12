@@ -503,28 +503,102 @@ with col_output:
             intent = result["intent"]
             conf = result["confidence"]
             top_k = result.get("top_k", [])
+            model_type_intent = result.get("model_type", "")
 
-            st.markdown(f"""
-            <div class="result-card">
-                <div class="result-header">
-                    <span class="result-title">Identified Intent</span>
-                    <span class="badge badge-intent">{intent}</span>
+            # --- Mental health crisis banner ---
+            if intent == "mental_health_distress":
+                st.markdown("""
+                <div style="background: #fef2f2; border: 2px solid #f87171; border-radius: 10px;
+                            padding: 1rem 1.25rem; margin-bottom: 1rem;">
+                    <div style="font-size: 1rem; font-weight: 700; color: #b91c1c; margin-bottom: 0.4rem;">
+                        🆘 Crisis Support Detected
+                    </div>
+                    <div style="font-size: 0.9rem; color: #7f1d1d; line-height: 1.6;">
+                        It sounds like you may be going through a very difficult time.
+                        You are not alone — please reach out for help:<br><br>
+                        <strong>iCall (India):</strong> 9152987821<br>
+                        <strong>Vandrevala Foundation:</strong> 1860-2662-345 (24/7)<br>
+                        <strong>AASRA:</strong> 9820466627<br>
+                        <strong>International:</strong> <a href="https://www.befrienders.org" target="_blank">befrienders.org</a>
+                    </div>
                 </div>
-                <div style="font-size: 1.1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.5rem;">
-                    Primary Intent: <code>{intent}</code>
-                </div>
-                <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.5rem;">
-                    Confidence: <strong>{conf:.1%}</strong>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
-            if top_k:
-                st.markdown("<div style='font-size: 0.825rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin: 0.75rem 0 0.25rem 0;'>Candidate Distribution</div>", unsafe_allow_html=True)
-                for cand_intent, cand_score in top_k:
-                    c1, c2 = st.columns([3, 1])
-                    c1.markdown(f"`{cand_intent}`")
-                    c2.markdown(f"**{cand_score:.1%}**")
+            # --- Threat / Violence warning banner ---
+            if intent == "threat_violence":
+                st.markdown("""
+                <div style="background: #fff1f2; border: 2px solid #f43f5e; border-radius: 10px;
+                            padding: 1rem 1.25rem; margin-bottom: 1rem;">
+                    <div style="font-size: 1rem; font-weight: 700; color: #be123c; margin-bottom: 0.4rem;">
+                        ⚠️ Violence / Threat Detected
+                    </div>
+                    <div style="font-size: 0.9rem; color: #881337; line-height: 1.6;">
+                        This utterance expresses intent involving physical harm, violence, or aggression towards another person.<br>
+                        <strong>Category:</strong> <code>threat_violence</code>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # --- No intent detected card ---
+            if intent == "no_intent_detected":
+                st.markdown("""
+                <div style="border: 1.5px dashed #cbd5e1; border-radius: 10px;
+                            padding: 1.25rem 1.5rem; background: #f8fafc; margin-bottom: 0.75rem;">
+                    <div style="font-size: 1rem; font-weight: 700; color: #64748b; margin-bottom: 0.4rem;">
+                        🤷 No Intent Detected
+                    </div>
+                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
+                        The input did not match any of the 33 supported intent categories
+                        with sufficient confidence.<br><br>
+                        <strong>Tip:</strong> Try being more specific — e.g.,
+                        <em>"Mujhe flight book karni hai"</em> or <em>"Aaj ka mausam kaisa hai?"</em>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            else:
+                # --- Intent result card (normal) ---
+                llm_badge = ""
+                if model_type_intent == "zero_shot_llm":
+                    llm_badge = "<span style='font-size:0.7rem; background:#e0e7ff; color:#3730a3; padding:2px 8px; border-radius:99px; font-weight:600; margin-left:8px;'>⚡ Zero-Shot LLM</span>"
+                elif model_type_intent == "safety_system":
+                    llm_badge = "<span style='font-size:0.7rem; background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:99px; font-weight:600; margin-left:8px;'>🛡️ Safety System</span>"
+
+                st.markdown(f"""
+                <div class="result-card">
+                    <div class="result-header">
+                        <span class="result-title">Identified Intent {llm_badge}</span>
+                        <span class="badge badge-intent">{intent}</span>
+                    </div>
+                    <div style="font-size: 1.1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.5rem;">
+                        Primary Intent: <code>{intent}</code>
+                    </div>
+                    <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.5rem;">
+                        Confidence: <strong>{conf:.1%}</strong>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                if top_k:
+                    st.markdown("<div style='font-size: 0.825rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin: 0.75rem 0 0.25rem 0;'>Candidate Distribution</div>", unsafe_allow_html=True)
+                    for cand_intent, cand_score in top_k:
+                        c1, c2 = st.columns([3, 1])
+                        c1.markdown(f"`{cand_intent}`")
+                        c2.markdown(f"**{cand_score:.1%}**")
+
+            with st.expander("📋 All Supported Intents (33)", expanded=False):
+                intent_list = [
+                    "affirmation", "apology", "book_flight", "cab_booking", "cancel_booking",
+                    "check_balance", "customer_care", "emergency_help", "farewell", "general_knowledge",
+                    "get_directions", "get_weather", "greeting", "health_advice", "hotel_booking",
+                    "medicine_reminder", "mental_health_distress", "movie_recommendation", "negation",
+                    "news_update", "no_intent_detected", "order_food", "play_music", "recharge_bill",
+                    "search_web", "send_money", "set_alarm", "set_reminder", "shopping",
+                    "sports_update", "tell_joke", "thank_you", "threat_violence",
+                ]
+                cols = st.columns(3)
+                for i, lbl in enumerate(intent_list):
+                    cols[i % 3].markdown(f"• `{lbl}`")
 
         # 3. Translation
         elif selected_task == "translation":

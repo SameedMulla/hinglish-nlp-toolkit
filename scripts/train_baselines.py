@@ -66,8 +66,8 @@ def train_intent_baseline(processed_dir: Path, models_dir: Path) -> None:
     texts = [d["text"] for d in data]
     labels = [d["intent"] for d in data]
 
-    logger.info(f"Training TF-IDF Intent Baseline on {len(texts)} samples...")
-    clf = TFIDFClassifier(classifier_type="svm", max_features=10000)
+    logger.info(f"Training TF-IDF Intent Baseline on {len(texts)} samples across {len(set(labels))} classes...")
+    clf = TFIDFClassifier(classifier_type="lr", max_features=30000, max_iter=2000)
     clf.fit(texts, labels)
 
     save_path = models_dir / "intent" / "baseline_intent.joblib"
@@ -80,14 +80,17 @@ def train_ner_baseline(processed_dir: Path, models_dir: Path) -> None:
         logger.warning(f"NER data not found at {train_path}")
         return
 
-    data = load_jsonl(train_path)[:2000]  # Fast train on 2,000 COMI-LINGUA sentences
-    tokens_list = [d["tokens"] for d in data]
-    tags_list = [d["ner_tags"] for d in data]
+    try:
+        data = load_jsonl(train_path)[:2000]  # Fast train on 2,000 COMI-LINGUA sentences
+        tokens_list = [d["tokens"] for d in data]
+        tags_list = [d["ner_tags"] for d in data]
 
-    logger.info(f"Training CRF NER Baseline on {len(tokens_list)} sentences...")
-    tagger = CRFSequenceTagger(max_iterations=50)
-    model_file = str(models_dir / "ner" / "baseline_crf_ner.model")
-    tagger.fit(tokens_list, tags_list, model_path=model_file)
+        logger.info(f"Training CRF NER Baseline on {len(tokens_list)} sentences...")
+        tagger = CRFSequenceTagger(max_iterations=50)
+        model_file = str(models_dir / "ner" / "baseline_crf_ner.model")
+        tagger.fit(tokens_list, tags_list, model_path=model_file)
+    except Exception as e:
+        logger.warning(f"Skipping CRF NER baseline training: {e}")
 
 
 def main() -> None:
@@ -95,8 +98,8 @@ def main() -> None:
     processed_dir = resolve_path(cfg, "processed_data_dir")
     models_dir = resolve_path(cfg, "model_dir")
 
-    train_sentiment_baseline(processed_dir, models_dir)
     train_intent_baseline(processed_dir, models_dir)
+    train_sentiment_baseline(processed_dir, models_dir)
     train_ner_baseline(processed_dir, models_dir)
 
     logger.info("Baseline models trained and saved successfully!")
